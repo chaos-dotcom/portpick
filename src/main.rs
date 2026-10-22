@@ -383,6 +383,24 @@ fn main() -> Result<()> {
     // Pass the Cli struct to get_locally_used_ports to access cli.address and cli.verbose
     match get_locally_used_ports(&cli) {
         Ok(local_ports) => {
+            if local_ports.is_empty() {
+                let target = cli.address.as_deref().unwrap_or("127.0.0.1");
+                let message = format!(
+                    "RustScan found 0 open TCP ports on {}. The host may be down or firewalled, or the scan may have been blocked (on macOS, check Privacy & Security > Local Network for the app running portpick). Any suggested port could already be in use",
+                    target
+                );
+                if cli.force {
+                    eprintln!(
+                        "{}",
+                        format!("Warning: {}. Proceeding with --force.", message).yellow()
+                    );
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "{}. Refusing to suggest ports. Use --force to override.",
+                        message
+                    ));
+                }
+            }
             forbidden_ports.extend(local_ports);
         }
         Err(e) => {
@@ -390,7 +408,7 @@ fn main() -> Result<()> {
                 eprintln!("{}", format!("Warning: Failed to get locally used ports: {}. Proceeding with --force, but suggestions may be inaccurate.", e).yellow());
                 // Proceed with an empty set of local ports, relying only on service data
             } else {
-                // If lsof fails and --force is not used, it's safer to error out.
+                // If the scan fails and --force is not used, it's safer to error out.
                 return Err(e.context("Failed to get locally used ports. Cannot reliably find an available port. Use --force to attempt suggestion anyway."));
             }
         }

@@ -398,4 +398,47 @@ fn test_cli_no_ports_found_message() -> Result<(), Box<dyn std::error::Error>> {
     ));
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn test_cli_empty_scan_result_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Simulate rustscan running but finding no ports. It exits 0, so the exit
+    // status alone cannot tell portpick that nothing was actually scanned.
+    let fake_dir = std::env::temp_dir().join(format!(
+        "portpick-fake-rustscan-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&fake_dir)?;
+    let script = fake_dir.join("rustscan");
+    std::fs::write(&script, "#!/bin/sh\nexit 0\n")?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))?;
+
+    let path = format!(
+        "{}:{}",
+        fake_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let mut cmd = Command::cargo_bin("portpick")?;
+    cmd.args(["-a", "192.168.69.8"]).env("PATH", &path);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Refusing to suggest ports"));
+
+    let mut cmd = Command::cargo_bin("portpick")?;
+    cmd.args(["-a", "192.168.69.8", "--force"])
+        .env("PATH", &path);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Suggested available port(s):"));
+
+    let _ = std::fs::remove_dir_all(&fake_dir);
+    Ok(())
+}
+
 // --- End of CLI integration tests ---
